@@ -7,13 +7,13 @@ Created on Tue Apr  2 19:19:07 2019
 """
 
 import logging
-import sys
 import argparse
 import json
 import copy
 import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.colors as clr
+
 
 class Group:
     def __init__(self, idx, color):
@@ -50,7 +50,29 @@ class Color:
 
     def json(self):
         return [self.rgb]
-    
+
+
+class GroupMeta:
+    def __init__(self, score, degree, eccentricity, most_connected_color_counter, most_connected_color, sorted_neighbour_colors):
+        self.score = score
+        self.degree = degree
+        self.eccentricity = eccentricity
+        self.most_connected_color_counter = most_connected_color_counter
+        self.most_connected_color = most_connected_color
+        self.sorted_neighbour_colors = sorted_neighbour_colors
+
+    def __str__(self):
+        return '<GroupMeta: score: %s, deg: %s, ecc: %s, most_connected_color: %s (%s)>' % (self.score, self.degree, self.eccentricity, self.most_connected_color.name, self.most_connected_color_counter)
+
+    def __eq__(self, other):
+        return self.score == other.score
+
+    def __hash__(self):
+        return int(self.score, 16)
+
+    def json(self):
+        return [self.score]
+
 
 def buildLevelGraph(levelData):
     G = nx.Graph()
@@ -65,7 +87,6 @@ def buildLevelGraph(levelData):
     
     for (g1, g2) in levelData['edges']:
         G.add_edge(groupsMap[g1], groupsMap[g2])
-        #logger.info('Add edge from', g1, 'to', g2)
     
     return G
 
@@ -103,11 +124,6 @@ def reduceGraph(graph):
 
         to_remove.append((equivalent_node_b, b_neighbour))
 
-        # if a_neighbour not in b_neighs and \
-                # a_neighbour != equivalent_node_b:
-            # to_add.append((a_neighbour, equivalent_node_b))
-        # to_remove.append((a_neighbour, equivalent_node_a))
-
     for (a, b) in to_remove:
         g.remove_edge(a, b)
 
@@ -119,52 +135,83 @@ def reduceGraph(graph):
     return reduceGraph(g)
 
 
-def solve(new_graph, solution=[], maxSteps=0):    
-    global logger
+def getGraphMeta(new_graph):
+    scores = []
+    diameter = nx.diameter(new_graph)
+    eccentricity = nx.eccentricity(new_graph)
+    degrees = list(new_graph.degree)
+    for (node, degree) in degrees:
+
+        # count the number of neighbour having the same color
+        color_neighbour_counters = dict()
+        for (a, b) in set(new_graph.edges(node)):
+            color_neighbour_counters[b.color] = color_neighbour_counters.get(b.color, 0) + 1
+
+        sorted_neighbour_colors = sorted(color_neighbour_counters, key=lambda x:color_neighbour_counters[x], reverse=True)
+        most_connected_color = max(color_neighbour_counters, key=lambda x:color_neighbour_counters[x])
+
+        # node score seek for:
+        # - maximum degree (number of edges)
+        # - minimum eccentricity (central to the graph)
+        # - maximum number of neighbour of the same color
+        score = degree + (diameter - eccentricity[node]) + 3 * color_neighbour_counters[most_connected_color]
+
+        scores.append((node, GroupMeta(score, degree, eccentricity[node], color_neighbour_counters[most_connected_color], most_connected_color, sorted_neighbour_colors)))
+    return scores
+
+
+def solve(new_graph, solution=[], maxSteps=0):
+    depth = len(solution)
+
+    logging.info('%s solve step (depth: %s)', getLoggingDepthSpaces(depth), depth)
     
-    path = len(solution)
-    
-    #sys.stdout.write('.')
-    #sys.stdout.flush()
-    
-    logger.info('solve step (depth: %s)', path)
-    
-    if path > maxSteps:
-        logger.info('maxStep exceeded: return')
+    if depth > maxSteps:
+        logging.info('%s maxStep exceeded -> return', getLoggingDepthSpaces(depth))
         return
 
     colors_left = len(set([node.color for node in new_graph.nodes()]))
     
     # We accept at most N moves.
     # If we have gotten to a path of length N, then colorsLeft must == 1.
-    if not (maxSteps - path > colors_left - 2):
-        logger.info('not enough steps left (steps left: %s colors left: %s', maxSteps - path, colors_left - 2)
+    if not (maxSteps - depth > colors_left - 2):
+        logging.info('%s not enough steps left (steps left: %s colors left: %s)', getLoggingDepthSpaces(depth), maxSteps - depth, colors_left - 2)
         return
 
     # Start out by reducing same colored nodes
     if len(new_graph.nodes()) == 1:
-        logger.info('Solution found! only 1 node left')
+        logging.info('%s solution found! only 1 node left', getLoggingDepthSpaces(depth))
         return solution
 
     # Now we mutate    
-    
-    #for node in list(sorted(nx.center(new_graph))):
-    
+
+    # - choose the node randomly
+    # for node in list(sorted(new_graph)):
+
+    # - choose the node that is the center of the current graph
+    # for node in list(sorted(nx.center(new_graph))):
+
+    # - choose the node that has minimum eccentricity (maximum distance from v to all other nodes in G)
     #new_graph_ecc = nx.eccentricity(new_graph)
-    #for node in list(sorted(new_graph_ecc, key=lambda x: new_graph_ecc[x])):        
-        #logger.info(node, 'ecc:', new_graph_ecc[node])
-        
-    for (node, degree) in list(sorted(new_graph.degree, key=lambda x: x[1], reverse=True)):
-    
-    #for node in list(sorted(new_graph)):
-        logger.info('Entering node: %s', node.idx)
+    #for node in list(sorted(new_graph_ecc, key=lambda x: new_graph_ecc[x])):
+
+    # - choose the node that have the greatest number of edges
+    # for (node, degree) in list(sorted(new_graph.degree, key=lambda x: x[1], reverse=True)):
+
+    # - choose the node that have the greatest score
+    for (node, group_meta) in list(sorted(getGraphMeta(new_graph), key=lambda x: x[1].score, reverse=True)):
+
+        logging.info('%s entering node %s - %s', getLoggingDepthSpaces(depth), node.idx, group_meta)
+        #logging.info('%s entering node %s (score: %s, degree: %s, ecc: %s)', getLoggingDepthSpaces(depth), node.idx, score, nx.degree(new_graph, node), nx.eccentricity(new_graph, node))
         
         # Get neighbours
         neighbours = list(nx.all_neighbors(new_graph, node))
-        # And their colors
-        neigh_colors = set([x.color for x in neighbours])
+
+        ## And their colors
+        # neigh_colors = set([x.color for x in neighbours])
+
         # We can be assured they are not like ours due to reduceGraph
-        for color in neigh_colors:            
+        for color in group_meta.sorted_neighbour_colors:
+        #for color in neigh_colors:
             # We take a copy of our graph, and toggle the color
             tmp_graph = copy.deepcopy(new_graph)
             xnode = [x for x in tmp_graph if x.idx == node.idx][0]
@@ -172,7 +219,7 @@ def solve(new_graph, solution=[], maxSteps=0):
 
             len_before = len(tmp_graph)
             tmp_graph = reduceGraph(tmp_graph)
-            logger.info('Changing color to %s: %s -> %s nodes', color.name, len_before, len(tmp_graph))
+            logging.info('%s changing color to %s: %s -> %s nodes', getLoggingDepthSpaces(depth), color.name, len_before, len(tmp_graph))
             x = solve(tmp_graph, solution=solution + [(node.idx, color)], maxSteps=maxSteps)
             if x is not None:
                 return x
@@ -192,15 +239,16 @@ def drawLevelGraph(g, title):
         graph_color_map.append('#' + node.color.rgb)
         
     nx.draw(g, node_color = graph_color_map, cmap = level_cmap, node_size = 800, with_labels = True)            
-    #plt.show()
+    plt.show()
 
-def printSolution(levelData, levelGraph, solution):    
+
+def printSolution(levelData, levelGraph, solution):
     g = copy.deepcopy(levelGraph)    
     
     for step in solution:
         g = applyStep(g, step)
         g = reduceGraph(g)
-        #drawLevelGraph(g, 'Move: ' + str(step[0]) + ' ' + step[1].name)
+        drawLevelGraph(g, 'Move: ' + str(step[0]) + ' ' + step[1].name)
     
 
 def applyStep(graph, solutionStep):
@@ -210,19 +258,11 @@ def applyStep(graph, solutionStep):
     return graph
 
 
-def setupLogger():
-    global logger    
-    logger = logging.getLogger('kami_solver')
-    #logger.propagate = False
-    # create file handler
-    fh = logging.FileHandler('output.log')
-    fh.setLevel(logging.INFO)
-    # create formatter and add it to the handlers
-    #formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    #fh.setFormatter(formatter)
-    # add the handlers to the logger
-    logger.addHandler(fh)
-    logger.info('test')
+def getLoggingDepthSpaces(depth):
+    spaces = ''
+    for i in range(0, depth):
+        spaces += ' '
+    return spaces
 
 
 if __name__ == '__main__':
@@ -230,11 +270,11 @@ if __name__ == '__main__':
     parser.add_argument('levelData', type=argparse.FileType('r'), help="Path to level json data file")
     args = parser.parse_args()
 
-setupLogger()
-levelData = json.load(args.levelData)
-levelGraph = buildLevelGraph(levelData)
-#drawLevelGraph(levelGraph, 'Initial state')
-solution = solve(levelGraph, maxSteps=levelData['steps'])
-printSolution(levelData, levelGraph, solution)
+    logging.basicConfig(level=logging.INFO, filename='output.txt', filemode='w')
 
+    levelData = json.load(args.levelData)
+    levelGraph = buildLevelGraph(levelData)
+    drawLevelGraph(levelGraph, 'Initial state')
+    solution = solve(levelGraph, maxSteps=levelData['steps'])
+    printSolution(levelData, levelGraph, solution)
 
