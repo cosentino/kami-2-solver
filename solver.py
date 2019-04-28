@@ -182,36 +182,14 @@ def solve(new_graph, solution=[], maxSteps=0):
         logging.info('%s solution found! only 1 node left', getLoggingDepthSpaces(depth))
         return solution
 
-    # Now we mutate    
-
-    # - choose the node randomly
-    # for node in list(sorted(new_graph)):
-
-    # - choose the node that is the center of the current graph
-    # for node in list(sorted(nx.center(new_graph))):
-
-    # - choose the node that has minimum eccentricity (maximum distance from v to all other nodes in G)
-    #new_graph_ecc = nx.eccentricity(new_graph)
-    #for node in list(sorted(new_graph_ecc, key=lambda x: new_graph_ecc[x])):
-
-    # - choose the node that have the greatest number of edges
-    # for (node, degree) in list(sorted(new_graph.degree, key=lambda x: x[1], reverse=True)):
-
-    # - choose the node that have the greatest score
+    # Now we mutate:
+    # choose the node that have the greatest score
     for (node, group_meta) in list(sorted(getGraphMeta(new_graph), key=lambda x: x[1].score, reverse=True)):
 
         logging.info('%s entering node %s - %s', getLoggingDepthSpaces(depth), node.idx, group_meta)
-        #logging.info('%s entering node %s (score: %s, degree: %s, ecc: %s)', getLoggingDepthSpaces(depth), node.idx, score, nx.degree(new_graph, node), nx.eccentricity(new_graph, node))
-        
-        # Get neighbours
-        neighbours = list(nx.all_neighbors(new_graph, node))
-
-        ## And their colors
-        # neigh_colors = set([x.color for x in neighbours])
 
         # We can be assured they are not like ours due to reduceGraph
         for color in group_meta.sorted_neighbour_colors:
-        #for color in neigh_colors:
             # We take a copy of our graph, and toggle the color
             tmp_graph = copy.deepcopy(new_graph)
             xnode = [x for x in tmp_graph if x.idx == node.idx][0]
